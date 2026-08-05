@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { ParsedOutput } from "$lib/types/parsed-output";
-    import { onMount } from 'svelte';
+    import { removeMetadata } from '$lib/utils/remove-metadata';
+    import { onDestroy } from 'svelte';
 
     export let fileUrl: string;
     export let currentFile: File | null;
@@ -10,10 +11,45 @@
     let searchTerm = '';
     let filteredOutput: ParsedOutput = [];
 
+    let stripping = false;
+    let stripError: string | null = null;
+    let strippedFileName: string | null = null;
+    let strippedUrl: string | null = null;
+
+    function resetStrippedResult() {
+        if (strippedUrl) {
+            URL.revokeObjectURL(strippedUrl);
+        }
+        strippedUrl = null;
+        strippedFileName = null;
+        stripError = null;
+    }
+
     $: if (currentFile) {
         // Reset scroll position when file changes
         if (container) {
             container.scrollTop = 0;
+        }
+        resetStrippedResult();
+    }
+
+    onDestroy(() => {
+        if (strippedUrl) URL.revokeObjectURL(strippedUrl);
+    });
+
+    async function handleStripMetadata() {
+        if (!currentFile) return;
+        stripping = true;
+        resetStrippedResult();
+        try {
+            const { blob, fileName } = await removeMetadata(currentFile);
+            strippedUrl = URL.createObjectURL(blob);
+            strippedFileName = fileName;
+        } catch (error) {
+            console.error('Error removing metadata:', error);
+            stripError = 'Something went wrong removing metadata. Please try again.';
+        } finally {
+            stripping = false;
         }
     }
 
@@ -66,6 +102,30 @@
                 <div class="flex justify-center items-center h-full text-gray-500 font-mono text-sm md:text-base">
                     exiftool could not properly be run on this file.
                 </div>
+            {/if}
+        </div>
+
+        <div class="border-t border-gray-300 pt-4 flex flex-col gap-2">
+            <button
+                class="self-start border-2 border-gray-300 rounded px-4 py-2 font-mono text-sm hover:border-blue-500 hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                on:click={handleStripMetadata}
+                disabled={stripping}
+            >
+                {stripping ? 'Removing metadata…' : 'Strip metadata'}
+            </button>
+
+            {#if stripError}
+                <p class="text-sm text-red-600 font-mono">{stripError}</p>
+            {/if}
+
+            {#if strippedUrl && strippedFileName}
+                <a
+                    href={strippedUrl}
+                    download={strippedFileName}
+                    class="self-start text-sm font-mono text-blue-600 underline"
+                >
+                    Download {strippedFileName}
+                </a>
             {/if}
         </div>
     {:else}
